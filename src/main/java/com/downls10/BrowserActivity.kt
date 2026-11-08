@@ -2195,6 +2195,12 @@ class BrowserActivity : Activity() {
         }
 
         val path = uri.path?.lowercase(Locale.US).orEmpty().trimEnd('/')
+
+        // Datanodes /download is a normal landing page, not a direct file.
+        // Keep it in the browser so the user can reach the actual download page.
+        val host = uri.host?.lowercase(Locale.US).orEmpty()
+        if (host == "datanodes.to" && path == "/download") return false
+
         val downloadPaths = setOf("/download", "/dl", "/file", "/export", "/attachment")
         return path in downloadPaths
     }
