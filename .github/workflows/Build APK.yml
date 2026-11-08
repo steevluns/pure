@@ -1,3 +1,4 @@
+# Manual and push-triggered Android debug build
 name: Build APK
 
 on:
