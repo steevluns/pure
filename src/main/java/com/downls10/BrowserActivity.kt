@@ -3043,7 +3043,7 @@ class BrowserActivity : Activity() {
                     var scope = root && root.querySelectorAll ? root : document;
                     // صيغ إعلانات الفيديو الشائعة: Sticky, In-Stream, Floating Outstream وIn-Banner.
                     // غالباً يكون عنوان iframe عاماً، لذلك نفحص أسماء الحاويات وخصائص بيانات الإعلان أيضاً.
-                    var videoAdPattern = /sticky[\s_-]*video|in[\s_-]*stream|floating[\s_-]*outstream|outstream[\s_-]*video|in[\s_-]*banner[\s_-]*video|video[\s_-]*ad/i;
+                    var videoAdPattern = /sticky[\s_-]*video|in[\s_-]*stream|floating[\s_-]*outstream|outstream[\s_-]*video|in[\s_-]*banner[\s_-]*video|video[\s_-]*ad|full[\s_-]*screen[\s_-]*ad|overlay[\s_-]*ad|k[\s_-]*fee|the[\s_-]*nun|wanna[\s_-]*break[\s_-]*from[\s_-]*the[\s_-]*ads?|glitch/i;
                     function markVideoAdContainer(el) {
                         var node = el;
                         for (var depth = 0; node && depth < 7 && node !== document.body; depth++, node = node.parentElement) {
@@ -3052,7 +3052,8 @@ class BrowserActivity : Activity() {
                                 node.className && typeof node.className === 'string' ? node.className : '',
                                 node.getAttribute && (node.getAttribute('data-ad-format') || ''),
                                 node.getAttribute && (node.getAttribute('data-ad-type') || ''),
-                                node.getAttribute && (node.getAttribute('aria-label') || '')
+                                node.getAttribute && (node.getAttribute('aria-label') || ''),
+                                node.getAttribute && (node.getAttribute('title') || '')
                             ].join(' ');
                             if (videoAdPattern.test(meta)) {
                                 node.classList.add('__downls10_video_ad_container');
@@ -3066,7 +3067,8 @@ class BrowserActivity : Activity() {
                             el.className && typeof el.className === 'string' ? el.className : '',
                             el.getAttribute('data-ad-format') || '',
                             el.getAttribute('data-ad-type') || '',
-                            el.getAttribute('aria-label') || ''
+                            el.getAttribute('aria-label') || '',
+                            el.getAttribute('title') || ''
                         ].join(' ');
                         if (videoAdPattern.test(meta)) el.classList.add('__downls10_video_ad_container');
                     });
@@ -3076,7 +3078,7 @@ class BrowserActivity : Activity() {
                         var isVideo = isVideoResource(src, type);
                         if (!isVideo && el.tagName === 'IFRAME') {
                             var title = (el.getAttribute('title') || '').toLowerCase();
-                            isVideo = /video|player|مشغل/.test(title);
+                            isVideo = /video|player|مشغل|full[\s_-]*screen[\s_-]*ad|overlay[\s_-]*ad|k[\s_-]*fee|the[\s_-]*nun|wanna[\s_-]*break[\s_-]*from[\s_-]*the[\s_-]*ads?|glitch/i.test(title);
                         }
                         if (isVideo) {
                             el.classList.add('__downls10_video_' + el.tagName.toLowerCase());
