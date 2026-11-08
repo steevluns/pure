@@ -2565,12 +2565,41 @@ class BrowserActivity : Activity() {
         // ارتفاع كل صف ثابت 48dp، والنافذة تعرض أربعة صفوف بالضبط.
         // أي اقتراح إضافي يبقى داخل ListView ويمكن الوصول إليه بالتمرير.
         val rowHeight = (48 * resources.displayMetrics.density).toInt()
+        val visibleRows = 4
+        val dividerSize = (1 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val popupHeight = (visibleRows * rowHeight) + ((visibleRows - 1) * dividerSize)
+
+        // اجعل ارتفاع محتوى النافذة نفسه ثابتاً لأربعة صفوف؛
+        // أي اقتراح خامس وما بعده يبقى داخل ListView ويظهر بالتمرير.
+        list.layoutParams = android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            popupHeight
+        )
+        list.isVerticalScrollBarEnabled = true
+        list.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         list.clipToPadding = true
         list.clipChildren = true
+
+        val suggestionsContainer = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                popupHeight
+            )
+            clipToPadding = true
+            clipChildren = true
+            addView(
+                list,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    popupHeight
+                )
+            )
+        }
+
         suggestionsPopup = PopupWindow(
-            list,
+            suggestionsContainer,
             editUrl.width.coerceAtLeast(250),
-            (4 * rowHeight),
+            popupHeight,
             false
         ).apply {
             // جعل النافذة ثابتة: لا تختفي عند النقر خارجها أو عند التفاعل مع شريط البحث
