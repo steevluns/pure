@@ -2241,7 +2241,7 @@ class BrowserActivity : Activity() {
         }
     }
 
-    /** يعرض حوار تأكيد التنزيل مع اسم الملف وحجمه وامتداده، ثم ينفذ الإجراء المختار من المستخدم. */
+    /** يعرض تأكيد التنزيل فقط عندما يكون الحجم الحقيقي للملف معروفًا. */
     private fun confirmDownload(
         url: String,
         suggestedFileName: String?,
@@ -2250,8 +2250,6 @@ class BrowserActivity : Activity() {
         mimeType: String? = null,
         showToast: Boolean = true
     ) {
-        var dialogShown = false
-
         DownloadsRepository.probeAndConfirm(
             this@BrowserActivity,
             url,
@@ -2260,32 +2258,21 @@ class BrowserActivity : Activity() {
             referer,
             mimeType
         ) { preview ->
-            if (!dialogShown) {
-                dialogShown = true
-                showDownloadDialog(preview, url, userAgent, referer, mimeType, showToast)
-            }
-        }
+            if (isFinishing || isDestroyed) return@probeAndConfirm
 
-        // خطة بديلة: إذا استغرق الاستكشاف أكثر من 5 ثوانٍ، عرض الحوار بمعلومات أساسية
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (!dialogShown) {
-                dialogShown = true
-                // إنشاء معاينة أساسية من المعلومات المتاحة
-                val fileName = suggestedFileName?.takeIf { it.isNotBlank() } 
-                    ?: url.substringAfterLast('/', "").takeIf { it.isNotBlank() } 
-                    ?: "download"
-                val ext = fileName.substringAfterLast(".", "bin")
-                val isHls = url.substringBefore('?').substringBefore('#')
-                    .endsWith(".m3u8", ignoreCase = true) ||
-                    mimeType?.contains("mpegurl", ignoreCase = true) == true ||
-                    ext.equals("m3u8", ignoreCase = true)
-                // لا تعرض حجم ملف قائمة HLS على أنه حجم الفيديو إذا تأخر فحص المقاطع.
-                val basicPreview = DownloadsRepository.DownloadPreview(
-                    fileName, if (isHls) -1L else 0L, ext
-                )
-                showDownloadDialog(basicPreview, url, userAgent, referer, mimeType, showToast)
+            // لا تعرض نافذة التأكيد البديلة التي تحتوي «حجم غير معروف».
+            // نافذة التأكيد الأصلية تبقى كما هي للملفات ذات الحجم الحقيقي المعروف.
+            if (preview.totalSize < 0L) {
+                Toast.makeText(
+                    this@BrowserActivity,
+                    "تعذر تحديد حجم الملف؛ لم يتم بدء التنزيل",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@probeAndConfirm
             }
-        }, 20000)
+
+            showDownloadDialog(preview, url, userAgent, referer, mimeType, showToast)
+        }
     }
 
     /** يعرض حوار التنزيل مع المعلومات المتاحة */
