@@ -1851,7 +1851,8 @@ class BrowserActivity : Activity() {
         webView.evaluateJavascript(js, null)
     }
 
-    // حذف عنصر قائمة النقاط الثلاث من DOM في نتائج بحث Google، وليس إخفاءه بـ CSS.
+    // إزالة زر قائمة النقاط الثلاث فقط؛ لا نحذف أقسام البحث ذات الصلة
+    // أو أي حاوية قد تحتوي نتائج البحث الفعلية.
     private fun hideGoogleResultMenuButtons(webView: WebView) {
         val js = """
             (function() {
@@ -1867,54 +1868,20 @@ class BrowserActivity : Activity() {
                 function removeResultMenus(root) {
                   (root || document).querySelectorAll(menuSelectors.join(',')).forEach(function(node) {
                     var button = node.closest('button,[role="button"]') || node;
-                    if (button && button !== document.body && button !== document.documentElement) button.remove();
-                  });
-                }
-
-                // إخفاء كتلة "تم البحث أيضًا عن" وروابط عمليات البحث ذات الصلة أسفلها.
-                function removeRelatedSearches(root) {
-                  var scope = root || document;
-                  var headings = scope.querySelectorAll
-                    ? scope.querySelectorAll('h1,h2,h3,h4,[role="heading"],div,span')
-                    : [];
-                  var labels = [
-                    'تم البحث أيضًا عن', 'تم البحث ايضا عن',
-                    'بحث أيضًا عن', 'بحث ايضا عن',
-                    'people also search for', 'related searches'
-                  ];
-                  headings.forEach(function(el) {
-                    if (!el || !el.textContent) return;
-                    var label = el.textContent.replace(/\s+/g, ' ').trim().toLowerCase();
-                    if (!labels.some(function(x) { return label === x || label.indexOf(x) === 0; })) return;
-
-                    var candidate = el;
-                    // اصعد إلى أصغر حاوية تضم عنوان القسم وروابطه، دون حذف الصفحة كلها.
-                    for (var level = 0; level < 6 && candidate.parentElement; level++) {
-                      var parent = candidate.parentElement;
-                      if (parent === document.body || parent === document.documentElement) break;
-                      candidate = parent;
-                      var links = candidate.querySelectorAll ? candidate.querySelectorAll('a') : [];
-                      var textLength = (candidate.innerText || candidate.textContent || '').length;
-                      if (links.length >= 2 && textLength < 1800) break;
-                    }
-                    if (candidate && candidate !== document.body &&
-                        candidate !== document.documentElement && candidate.parentElement) {
-                      candidate.remove();
+                    if (button && button !== document.body && button !== document.documentElement) {
+                      button.remove();
                     }
                   });
                 }
 
-                function clean(root) {
-                  removeResultMenus(root);
-                  removeRelatedSearches(root);
-                }
-
-                clean(document);
+                // لا تحذف «عمليات البحث ذات الصلة»؛ بعض إصدارات Google
+                // تضع نتائج البحث داخل حاويات مشتركة معها.
+                removeResultMenus(document);
                 if (!window.__vinusGoogleResultMenuObserver) {
                   window.__vinusGoogleResultMenuObserver = new MutationObserver(function(records) {
                     records.forEach(function(record) {
                       record.addedNodes.forEach(function(node) {
-                        if (node.nodeType === 1) clean(node);
+                        if (node.nodeType === 1) removeResultMenus(node);
                       });
                     });
                   });
