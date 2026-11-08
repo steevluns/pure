@@ -3043,7 +3043,7 @@ class BrowserActivity : Activity() {
                     var scope = root && root.querySelectorAll ? root : document;
                     // صيغ إعلانات الفيديو الشائعة: Sticky, In-Stream, Floating Outstream وIn-Banner.
                     // غالباً يكون عنوان iframe عاماً، لذلك نفحص أسماء الحاويات وخصائص بيانات الإعلان أيضاً.
-                    var videoAdPattern = /sticky[\\s_-]*video|in[\\s_-]*stream|floating[\\s_-]*outstream|outstream[\\s_-]*video|in[\\s_-]*banner[\\s_-]*video|video[\\s_-]*ad/i;
+                    var videoAdPattern = /sticky[\s_-]*video|in[\s_-]*stream|floating[\s_-]*outstream|outstream[\s_-]*video|in[\s_-]*banner[\s_-]*video|video[\s_-]*ad/i;
                     function markVideoAdContainer(el) {
                         var node = el;
                         for (var depth = 0; node && depth < 7 && node !== document.body; depth++, node = node.parentElement) {
