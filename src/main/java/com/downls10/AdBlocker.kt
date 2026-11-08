@@ -51,6 +51,30 @@ object AdBlocker {
         BlockListDef("porn", "Porn", "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-only/hosts", ListFormat.HOSTS, ListCategory.PORN),
         // OpenPhish Community Feed: phishing URLs; non-commercial use under its terms.
         BlockListDef("openphish", "OpenPhish (تصيّد)", "https://openphish.com/feed.txt", ListFormat.URL_LIST, ListCategory.PHISHING),
+        // AdGuard DNS Popup Hosts: قواعد النوافذ المنبثقة على مستوى النطاقات.
+        BlockListDef(
+            "popup_hosts", "Popup Hosts",
+            "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/adguard_popup_filter.txt",
+            ListFormat.ABP, ListCategory.AD
+        ),
+        // HaGeZi Pop-Up Ads: قائمة مخصصة لإعلانات النوافذ المنبثقة.
+        BlockListDef(
+            "popup_ads", "Pop-Up Ads",
+            "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/popupads.txt",
+            ListFormat.ABP, ListCategory.AD
+        ),
+        // AdGuard DNS filter.
+        BlockListDef(
+            "adguard", "AdGuard",
+            "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
+            ListFormat.ABP, ListCategory.AD
+        ),
+        // HaGeZi Multi PRO DNS blocklist.
+        BlockListDef(
+            "hagezi", "HaGeZi's",
+            "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.txt",
+            ListFormat.ABP, ListCategory.AD
+        ),
         // قائمتان مستقلتان لحجب نطاقات إعلانات YouTube المعروفة.
         BlockListDef("youtube_ads_extra", "YouTube AdBlock 2", "https://raw.githubusercontent.com/AdguardTeam/AdGuardFilters/master/BaseFilter/sections/adservers.txt", ListFormat.ABP, ListCategory.AD),
     )
