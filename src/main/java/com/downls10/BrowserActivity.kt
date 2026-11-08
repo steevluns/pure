@@ -2522,7 +2522,7 @@ class BrowserActivity : Activity() {
                             val json = connection.inputStream.bufferedReader().use { it.readText() }
                             val arr = org.json.JSONArray(json)
                             val values = arr.optJSONArray(1) ?: org.json.JSONArray()
-                            (0 until values.length()).mapNotNull { values.optString(it).takeIf { v -> v.isNotBlank() } }.distinct().take(8)
+                            (0 until values.length()).mapNotNull { values.optString(it).takeIf { v -> v.isNotBlank() } }.distinct().take(12)
                         } finally { connection.disconnect() }
                     } catch (_: Exception) { emptyList<String>() }
                     mainHandler.post {
@@ -2595,12 +2595,12 @@ class BrowserActivity : Activity() {
                 }
             }
         }
-        // إظهار خمسة اقتراحات كحد أقصى؛ عند وجود المزيد يمكن تمرير القائمة.
+        // إظهار أربعة أسطر فقط؛ بقية الاقتراحات تظهر بالتمرير داخل القائمة.
         val rowHeight = (52 * resources.displayMetrics.density).toInt()
         suggestionsPopup = PopupWindow(
             list,
             editUrl.width.coerceAtLeast(250),
-            (items.size.coerceAtMost(5) * rowHeight),
+            (items.size.coerceAtMost(4) * rowHeight),
             false
         ).apply {
             // جعل النافذة ثابتة: لا تختفي عند النقر خارجها أو عند التفاعل مع شريط البحث
