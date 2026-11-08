@@ -2997,7 +2997,8 @@ class BrowserActivity : Activity() {
             video, video *, video[poster],
             iframe.__downls10_video_iframe,
             object.__downls10_video_object,
-            embed.__downls10_video_embed {
+            embed.__downls10_video_embed,
+            .__downls10_video_ad_container {
                 visibility: hidden !important;
                 opacity: 0 !important;
             }
@@ -3005,7 +3006,8 @@ class BrowserActivity : Activity() {
             video, video *, video[poster],
             iframe.__downls10_video_iframe,
             object.__downls10_video_object,
-            embed.__downls10_video_embed {
+            embed.__downls10_video_embed,
+            .__downls10_video_ad_container {
                 visibility: visible !important;
                 opacity: 1 !important;
             }
@@ -3039,6 +3041,35 @@ class BrowserActivity : Activity() {
 
                 function markVideoEmbeds(root) {
                     var scope = root && root.querySelectorAll ? root : document;
+                    // صيغ إعلانات الفيديو الشائعة: Sticky, In-Stream, Floating Outstream وIn-Banner.
+                    // غالباً يكون عنوان iframe عاماً، لذلك نفحص أسماء الحاويات وخصائص بيانات الإعلان أيضاً.
+                    var videoAdPattern = /sticky[\\s_-]*video|in[\\s_-]*stream|floating[\\s_-]*outstream|outstream[\\s_-]*video|in[\\s_-]*banner[\\s_-]*video|video[\\s_-]*ad/i;
+                    function markVideoAdContainer(el) {
+                        var node = el;
+                        for (var depth = 0; node && depth < 7 && node !== document.body; depth++, node = node.parentElement) {
+                            var meta = [
+                                node.id || '',
+                                node.className && typeof node.className === 'string' ? node.className : '',
+                                node.getAttribute && (node.getAttribute('data-ad-format') || ''),
+                                node.getAttribute && (node.getAttribute('data-ad-type') || ''),
+                                node.getAttribute && (node.getAttribute('aria-label') || '')
+                            ].join(' ');
+                            if (videoAdPattern.test(meta)) {
+                                node.classList.add('__downls10_video_ad_container');
+                                return;
+                            }
+                        }
+                    }
+                    scope.querySelectorAll('[id], [class], [data-ad-format], [data-ad-type], [aria-label]').forEach(function(el) {
+                        var meta = [
+                            el.id || '',
+                            el.className && typeof el.className === 'string' ? el.className : '',
+                            el.getAttribute('data-ad-format') || '',
+                            el.getAttribute('data-ad-type') || '',
+                            el.getAttribute('aria-label') || ''
+                        ].join(' ');
+                        if (videoAdPattern.test(meta)) el.classList.add('__downls10_video_ad_container');
+                    });
                     scope.querySelectorAll('iframe, object, embed').forEach(function(el) {
                         var src = el.getAttribute('src') || el.getAttribute('data') || el.getAttribute('data-src') || '';
                         var type = el.getAttribute('type') || '';
@@ -3047,7 +3078,10 @@ class BrowserActivity : Activity() {
                             var title = (el.getAttribute('title') || '').toLowerCase();
                             isVideo = /video|player|مشغل/.test(title);
                         }
-                        if (isVideo) el.classList.add('__downls10_video_' + el.tagName.toLowerCase());
+                        if (isVideo) {
+                            el.classList.add('__downls10_video_' + el.tagName.toLowerCase());
+                            markVideoAdContainer(el);
+                        }
                     });
                     // بعض المواقع تضع رابط الفيديو في data-src أو تنشئ عناصر الفيديو بعد التحميل.
                     scope.querySelectorAll('video, source').forEach(function(el) {
