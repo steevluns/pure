@@ -814,8 +814,22 @@ object DownloadsRepository {
     }
 
     fun resumeDownload(context: Context, item: DownloadItem) {
+        val appContext = context.applicationContext
+        ensureLoaded(appContext)
+        if (!isResumable(item)) {
+            item.state = DownloadState.ERROR
+            item.status = "لا يمكن استئناف هذا النوع من الملفات"
+            notifyChanged(appContext, forceSave = true)
+            return
+        }
+
+        // لا تجعل استئناف الملف ينتظر انتهاء تنزيل آخر عند ضبط التزامن على 1.
+        downloadEngine.prepareImmediateResume()
         item.state = DownloadState.DOWNLOADING
-        executeDownload(context, item)
+        item.status = "جارٍ استئناف التنزيل..."
+        item.speed = "0 KB/s"
+        notifyChanged(appContext, forceSave = true)
+        executeDownload(appContext, item)
     }
 
     /**
