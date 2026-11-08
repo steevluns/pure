@@ -1,0 +1,66 @@
+name: Extract Project ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Extract ZIP contents directly into repository root
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -d '' archives < <(
+            find . -type f -name '*.zip' \
+              -not -path './.git/*' \
+              -not -path './.github/*' \
+              -print0
+          )
+
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: No .zip file found in the repository."
+            exit 1
+          fi
+
+          python3 - "${archives[@]}" <<'PYTHON'
+          import pathlib
+          import sys
+          import zipfile
+
+          root = pathlib.Path.cwd().resolve()
+          for archive_name in sys.argv[1:]:
+              archive = pathlib.Path(archive_name).resolve()
+              print(f"Extracting {archive.name} directly into repository root")
+              with zipfile.ZipFile(archive) as zf:
+                  for item in zf.infolist():
+                      target = (root / item.filename).resolve()
+                      if target != root and root not in target.parents:
+                          raise SystemExit(f"Unsafe ZIP entry path: {item.filename}")
+                  zf.extractall(root)
+          PYTHON
+
+      - name: Commit extracted files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add -A
+          # Do not add the source archives or GitHub workflow files to the extraction commit.
+          git reset -- '*.zip' '.github/workflows/*' || true
+          if git diff --cached --quiet; then
+            echo "No extracted-file changes to commit."
+            exit 0
+          fi
+          git commit -m "Extract ZIP contents into repository root"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
