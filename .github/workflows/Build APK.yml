@@ -1,4 +1,5 @@
 # Build only when manually requested
+# Triggered for the current source build.
 name: Build APK
 
 on:
