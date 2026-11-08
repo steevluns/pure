@@ -68,6 +68,15 @@ class DownloadManagerEngine {
             executor.prestartAllCoreThreads()
         }
     }
+
+    /**
+     * يمنح التنزيلات المستأنفة مسارات تنفيذ فورية حتى لا تبقى خلف تنزيل
+     * آخر عندما يكون حد التزامن المحفوظ منخفضاً.
+     */
+    fun prepareImmediateResume() {
+        val current = executor.corePoolSize
+        if (current < 4) setMaxConcurrentDownloads(4)
+    }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activeTasks = ConcurrentHashMap<Long, Boolean>()
     private val generations = ConcurrentHashMap<Long, Int>()
