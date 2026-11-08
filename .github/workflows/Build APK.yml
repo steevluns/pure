@@ -1,7 +1,8 @@
 name: Build APK
-# Manual builds only. Commits and source changes will not start a build automatically.
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -20,15 +21,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.7'
 
       - name: Verify Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          test -d "$ANDROID_HOME/platform-tools" || true
+          test -d "$ANDROID_HOME/platform-tools"
           ls "$ANDROID_HOME"
 
       - name: Build debug APK
@@ -41,6 +42,3 @@ jobs:
           path: build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
-
-# Build requested 2026-10-24: include latest saved project changes
-# Rebuild requested 2026-10-25: build latest saved changes.
