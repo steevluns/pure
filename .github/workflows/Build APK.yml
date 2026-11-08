@@ -1,9 +1,7 @@
-# Manual and push-triggered Android debug build
+# Build only when manually requested
 name: Build APK
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
