@@ -2549,10 +2549,16 @@ class BrowserActivity : Activity() {
                 override fun getItem(position: Int) = suggestionItems[position]
                 override fun getItemId(position: Int) = position.toLong()
                 override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    val suggestionRowHeight = (48 * resources.displayMetrics.density).toInt()
                     val row = LinearLayout(this@BrowserActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER_VERTICAL
-                        setPadding(8, 2, 8, 2)
+                        setPadding(8, 0, 8, 0)
+                        minimumHeight = suggestionRowHeight
+                        layoutParams = android.widget.AbsListView.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            suggestionRowHeight
+                        )
                         setBackgroundColor(0xFF202020.toInt())
                     }
                     val label = TextView(this@BrowserActivity).apply {
@@ -2596,11 +2602,15 @@ class BrowserActivity : Activity() {
             }
         }
         // إظهار أربعة أسطر فقط؛ بقية الاقتراحات تظهر بالتمرير داخل القائمة.
-        val rowHeight = (52 * resources.displayMetrics.density).toInt()
+        // ارتفاع كل صف ثابت 48dp، والنافذة تعرض أربعة صفوف بالضبط.
+        // أي اقتراح إضافي يبقى داخل ListView ويمكن الوصول إليه بالتمرير.
+        val rowHeight = (48 * resources.displayMetrics.density).toInt()
+        list.clipToPadding = true
+        list.clipChildren = true
         suggestionsPopup = PopupWindow(
             list,
             editUrl.width.coerceAtLeast(250),
-            (items.size.coerceAtMost(4) * rowHeight),
+            (4 * rowHeight),
             false
         ).apply {
             // جعل النافذة ثابتة: لا تختفي عند النقر خارجها أو عند التفاعل مع شريط البحث
