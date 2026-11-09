@@ -1121,36 +1121,12 @@ class BrowserActivity : Activity() {
         settings.allowUniversalAccessFromFileURLs = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.safeBrowsingEnabled = true
         
-        // === الوضع الليلي الذكي (Force Dark) ===
-        // FORCE_DARK_AUTO: يحوّل المواقع الفاتحة للداكن، ويحافظ على المواقع الداكنة أصلاً
-        // يستثني الصور والفيديو والأيقونات تلقائياً في الإصدارات الحديثة
+        // لا نفرض الوضع الداكن على محتوى المواقع؛ نترك CSS وألوان كل موقع كما صممها.
+        // Force Dark قد يغيّر ألوان الأزرار والأيقونات ويجعل بعض العناصر غير مرئية.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            settings.setForceDark(WebSettings.FORCE_DARK_AUTO)
+            settings.setForceDark(WebSettings.FORCE_DARK_OFF)
         }
-        
-        // حقن CSS إضافي لحماية الألوان في الصور والأيقونات والخطوط الملونة
-        // هذا يعمل مع Force Dark لضمان عدم انعكاس الألوان في العناصر التي يجب أن تبقى كما هي
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            val darkModeCss = """
-                @media (prefers-color-scheme: dark) {
-                    img, video, canvas, picture, svg, [style*="color:"] {
-                        filter: none !important;
-                        -webkit-filter: none !important;
-                    }
-                    * {
-                        text-shadow: none !important;
-                    }
-                }
-            """.trimIndent()
-            webView.evaluateJavascript("""
-                (function() {
-                    var style = document.createElement('style');
-                    style.textContent = `$darkModeCss`;
-                    document.head.appendChild(style);
-                })();
-            """.trimIndent(), null)
-        }
-        
+
         // OAuth providers may rely on cross-site cookies during redirects and sign-in.
         // Keep first-party cookies enabled and allow third-party cookies for login compatibility.
         // This improves federated sign-in but may permit additional cross-site tracking.
@@ -1381,7 +1357,7 @@ class BrowserActivity : Activity() {
                     applyNightModeJs(view)
                     applySearxngNightModeJs(view)
                 }
-                if (isGoogleSearchResultsPage(url)) hideGoogleResultMenuButtons(view)
+
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
@@ -1471,10 +1447,10 @@ class BrowserActivity : Activity() {
                 if (restoringPreviousPosition < 0 && tabRestoring?.historyNavigationPending != true &&
                     ensureGoogleSearchPageSize(view)) return
                 if (isGoogleSearchResultsPage(url)) {
-                    hideGoogleResultMenuButtons(view)
+
                     mainHandler.postDelayed({
                         if (!isFinishing && !isDestroyed && isGoogleSearchResultsPage(view.url)) {
-                            hideGoogleResultMenuButtons(view)
+
                         }
                     }, 1000L)
                     injectGooglePaginationJs(view)
@@ -3300,7 +3276,7 @@ class BrowserActivity : Activity() {
         webView.evaluateJavascript(js, null)
     }
 
-    // الوضع الليلي: يقلب ألوان أي موقع فاتح إلى أسود، ويترك الموقع الداكن كما هو.
+    // الوضع الليلي لا يغيّر محتوى المواقع؛ يحافظ على ألوانها وأزرارها وأيقوناتها الأصلية.
     // الحالة محفوظة دائماً (تبقى بعد إغلاق التطبيق)، ويُطبَّق مباشرة على كل التبويبات عند التشغيل.
     private fun toggleNightMode() {
         nightMode = !nightMode
@@ -3316,7 +3292,7 @@ class BrowserActivity : Activity() {
                 }
             }
         }
-        Toast.makeText(this, if (nightMode) "الوضع الليلي مفعّل (ثابت دائماً)" else "تم إيقاف الوضع الليلي", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, if (nightMode) "الوضع الليلي مفعّل دون تغيير ألوان المواقع" else "تم إيقاف الوضع الليلي", Toast.LENGTH_SHORT).show()
     }
 
     private var lastNightInject = 0L
@@ -3365,152 +3341,33 @@ class BrowserActivity : Activity() {
      * لا يغيّر المتصفح ألوان صفحات الويب أو نتائج البحث؛ يزيل أي تأثير ليلي
      * قديم كي يعرض WebView ألوان كل موقع وروابطه الافتراضية.
      */
+    /**
+     * الوضع الليلي غير تدخلي: لا نغيّر DOM أو ألوان أو خلفيات أو فلاتر عناصر المواقع.
+     * نزيل فقط الأنماط القديمة التي كان إصدار سابق من التطبيق قد أضافها.
+     */
     private fun applyNightModeJs(webView: WebView) {
-        // لا تفحص الخلفية بعد حقن CSS، لأن ذلك سيجعل الصفحة تبدو سوداء
-        // ثم يزيل التأثير في الاستدعاء التالي. خزّن نتيجة الفحص الأصلية لكل صفحة.
-        val js = """
-            (function(){
-              try {
-                var id='__downls10_night_mode__';
-                var root=document.documentElement;
-                if(!root) return;
-                function colorInfo(c){
-                  if(!c || c==='transparent') return null;
-                  var m=c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);
-                  if(!m) return null;
-                  var alpha=(m[4]===undefined)?1:parseFloat(m[4]);
-                  if(alpha<0.15) return null;
-                  var r=+m[1],g=+m[2],b=+m[3];
-                  return {lum:(r*299+g*587+b*114)/1000,alpha:alpha};
-                }
-                function visible(el){
-                  if(!el || !el.getBoundingClientRect) return false;
-                  var r=el.getBoundingClientRect(),cs=getComputedStyle(el);
-                  return r.width>Math.min(120,innerWidth*0.25) &&
-                         r.height>Math.min(60,innerHeight*0.1) &&
-                         cs.display!=='none' && cs.visibility!=='hidden' &&
-                         parseFloat(cs.opacity||'1')>0;
-                }
-                if(typeof window.__downls10NightOriginalDark==='undefined'){
-                  // لا نحكم أثناء تحميل الصفحة؛ بعض المواقع لا تنشئ body أو تضبط خلفيتها إلا لاحقاً.
-                  if(document.readyState==='loading' || !document.body) return;
-                  var darkSamples=0,lightSamples=0,knownSamples=0;
-                  // افحص الخلفية المرئية فعلياً عبر نقاط متعددة من الشاشة، مع الصعود عبر العناصر الشفافة.
-                  // هذا يمنع البطاقات البيضاء القليلة من جعل موقع أسود بالكامل يبدو فاتحاً.
-                  for(var sy=0;sy<3;sy++){
-                    for(var sx=0;sx<3;sx++){
-                      var px=Math.max(1,Math.min(innerWidth-1,Math.round((sx+0.5)*innerWidth/3)));
-                      var py=Math.max(1,Math.min(innerHeight-1,Math.round((sy+0.5)*innerHeight/3)));
-                      var stack=document.elementsFromPoint ? document.elementsFromPoint(px,py) : [document.elementFromPoint(px,py)];
-                      var found=null;
-                      for(var si=0;si<stack.length && !found;si++){
-                        var el=stack[si];
-                        while(el && el!==root && el!==document.body){
-                          var bg=colorInfo(getComputedStyle(el).backgroundColor);
-                          if(bg && bg.alpha>=0.85){found=bg;break;}
-                          el=el.parentElement;
-                        }
-                        if(!found){
-                          var bodyBg=colorInfo(getComputedStyle(document.body).backgroundColor);
-                          var rootBg=colorInfo(getComputedStyle(root).backgroundColor);
-                          found=bodyBg || rootBg;
-                        }
-                      }
-                      if(found){
-                        knownSamples++;
-                        if(found.lum<105) darkSamples++;
-                        else if(found.lum>175) lightSamples++;
-                      }
-                    }
-                  }
-                  // استخدم لون html/body كمرجع إضافي عندما تكون الخلفية مرسومة على مستوى الصفحة.
-                  var rootBg=colorInfo(getComputedStyle(root).backgroundColor);
-                  var bodyBg=colorInfo(getComputedStyle(document.body).backgroundColor);
-                  var pageBg=bodyBg || rootBg;
-                  var mostlyDark=knownSamples>0 && darkSamples/knownSamples>=0.55 &&
-                                 darkSamples>=lightSamples;
-                  window.__downls10NightOriginalDark = mostlyDark ||
-                    (!!pageBg && pageBg.lum<80 && lightSamples<=darkSamples);
-                }
-                var st=document.getElementById(id);
-                // الموقع الداكن أصلاً لا نغيّر ألوانه.
-                if(window.__downls10NightOriginalDark){
-                  if(st) st.remove();
-                  window.__downls10NightDark=true;
-                  return;
-                }
-                if(!st){ st=document.createElement('style'); st.id=id; (document.head||root).appendChild(st); }
-                // الوضع الليلي الحقيقي: اجعل مساحات الصفحة ونتائج البحث شفافة فوق خلفية سوداء،
-                // مع إبقاء الصور والشعارات وSVG وأيقونات المواقع بألوانها وأشكالها الأصلية.
-                // لا نستخدم invert أو grayscale ولا نمسّ background-image الخاصة بالمواقع.
-                st.textContent =
-                  'html,body{background:#000!important;background-color:#000!important;color:#f2f2f2!important;color-scheme:dark}'+
-                  // غيّر لون النصوص العادية فقط؛ اترك الروابط والأزرار والأيقونات بألوان الموقع الأصلية.
-                  'body :not(a):not(button):not(input):not(textarea):not(select):not(svg):not(canvas):not(img):not(video):not(picture):not(iframe):not([role="img"]):not([role="button"]):not([class*="icon"]):not([class*="Icon"]):not([class*="logo"]):not([class*="Logo"]):not([class*="download"]):not([class*="Download"]){color:#ededed!important;-webkit-text-fill-color:currentColor!important}'+
-                  // لا نفرض لوناً على الروابط؛ تبقى الروابط المهمة بألوانها الأصلية.
-                  'a,a:visited,a:hover,a:active,button,[role="button"],svg,img,picture,video,canvas,iframe,[class*="icon"],[class*="Icon"],[class*="logo"],[class*="Logo"],[class*="download"],[class*="Download"]{filter:none!important;-webkit-filter:none!important}'+
-                  'input,textarea,select{background-color:#171717!important;color:#f2f2f2!important;-webkit-text-fill-color:#f2f2f2!important;color-scheme:dark;border-color:#444!important}'+
-                  'input::placeholder,textarea::placeholder{color:#bdbdbd!important;-webkit-text-fill-color:#bdbdbd!important}';
-                // سوّد الحاويات الفاتحة الكبيرة فقط، ولا تلمس خلفيات الصور أو الأيقونات أو الأزرار.
-                var protectedSelector='a,button,input,textarea,select,svg,img,picture,video,canvas,iframe,[role="img"],[role="button"],[class*="icon"],[class*="Icon"],[class*="logo"],[class*="Logo"],[class*="download"],[class*="Download"]';
-                var nodes=document.body ? document.body.querySelectorAll('*') : [];
-                for(var ni=0;ni<nodes.length;ni++){
-                  var node=nodes[ni];
-                  if(node.matches(protectedSelector)) continue;
-                  var box=node.getBoundingClientRect();
-                  if(box.width<innerWidth*0.25 || box.height<Math.max(35,innerHeight*0.045)) continue;
-                  var cs=getComputedStyle(node);
-                  if(cs.display==='none'||cs.visibility==='hidden'||parseFloat(cs.opacity||'1')<0.05) continue;
-                  if(cs.backgroundImage && cs.backgroundImage!=='none') continue;
-                  var bg=colorInfo(cs.backgroundColor);
-                  if(bg && bg.lum>170 && bg.alpha>0.15 &&
-                     box.width*box.height>innerWidth*innerHeight*0.055){
-                    node.style.setProperty('background-color','#000','important');
-                  }
-                }
-                // اجعل روابط عناوين النتائج الداكنة مقروءة على الخلفية السوداء،
-                // مع الحفاظ على الروابط الملونة مثل روابط التحميل والروابط البرتقالية.
-                function fixDarkTextLinks(rootNode){
-                  var links=(rootNode||document).querySelectorAll('a');
-                  for(var ai=0;ai<links.length;ai++){
-                    var link=links[ai];
-                    if(link.closest('button,[role="button"],[class*="icon"],[class*="Icon"],[class*="logo"],[class*="Logo"]')) continue;
-                    var rgb=colorInfo(getComputedStyle(link).color);
-                    if(rgb && rgb.lum<135){
-                      link.style.setProperty('color','#f2f2f2','important');
-                      link.style.setProperty('-webkit-text-fill-color','#f2f2f2','important');
-                    }
-                  }
-                }
-                fixDarkTextLinks(document);
-                if(!window.__downls10NightLinkObserver){
-                  window.__downls10NightLinkObserver=new MutationObserver(function(records){
-                    records.forEach(function(record){
-                      record.addedNodes.forEach(function(node){
-                        if(node.nodeType===1){
-                          if(node.matches && node.matches('a')) fixDarkTextLinks(node.parentNode||document);
-                          fixDarkTextLinks(node);
-                        }
-                      });
-                    });
-                  });
-                  window.__downls10NightLinkObserver.observe(document.documentElement,{childList:true,subtree:true});
-                }
-                window.__downls10NightDark=false;
-              } catch(e) {}
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(js, null)
+        removeNightModeJs(webView)
     }
 
     private fun removeNightModeJs(webView: WebView) {
         val js = """
-            (function(){var s=document.getElementById('__downls10_night_mode__');if(s)s.remove();
-              window.__downls10NightDark=undefined;
-              if(window.__downls10NightObserver){window.__downls10NightObserver.disconnect();window.__downls10NightObserver=null;}
-              if(window.__downls10NightTimer){clearInterval(window.__downls10NightTimer);window.__downls10NightTimer=null;}
+            (function(){
+              try {
+                var ids=['__downls10_night_mode__','__downls10_google_search_dark__'];
+                ids.forEach(function(id){var s=document.getElementById(id);if(s)s.remove();});
+                ['__downls10NightObserver','__downls10NightLinkObserver','__downls10GoogleDarkObserver'].forEach(function(k){
+                  if(window[k] && window[k].disconnect){window[k].disconnect();}
+                  window[k]=null;
+                });
+                ['__downls10NightTimer','__downls10GoogleDarkTimer'].forEach(function(k){
+                  if(window[k]) clearInterval(window[k]);
+                  window[k]=null;
+                });
+                window.__downls10NightDark=undefined;
+                window.__downls10NightOriginalDark=undefined;
+              } catch(e) {}
             })();
-        """
+        """.trimIndent()
         webView.evaluateJavascript(js, null)
     }
 
