@@ -327,51 +327,19 @@ class BrowserActivity : Activity() {
             }
         }
 
-        // أظهر خيار "لصق" عند الضغط المطوّل على شريط العنوان،
-        // مع استبدال النص المحدد أو الإدراج عند موضع المؤشر.
+        // الضغط المطوّل على شريط البحث ينسخ كل النص الموجود فيه مباشرةً.
         editUrl.isLongClickable = true
-        editUrl.setOnLongClickListener { view ->
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val clip = clipboard.primaryClip
-            val pasteMenu = android.widget.PopupMenu(this, view)
-            val pasteItem = pasteMenu.menu.add(0, 1, 0, "لصق")
-            pasteItem.isEnabled = clip != null && clip.itemCount > 0
-            pasteMenu.menu.add(0, 2, 1, "نسخ")
-            pasteMenu.menu.add(0, 3, 2, "تحديد الكل")
-
-            pasteMenu.setOnMenuItemClickListener { item ->
-                when (item.itemId) {
-                    1 -> {
-                        val pastedText = clip?.takeIf { it.itemCount > 0 }
-                            ?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
-                        if (pastedText.isNotEmpty()) {
-                            val start = editUrl.selectionStart.coerceAtLeast(0)
-                            val end = editUrl.selectionEnd.coerceAtLeast(0)
-                            val insertAt = minOf(start, end)
-                            editUrl.text.replace(insertAt, maxOf(start, end), pastedText)
-                            editUrl.setSelection((insertAt + pastedText.length).coerceAtMost(editUrl.length()))
-                        }
-                    }
-                    2 -> {
-                        val start = editUrl.selectionStart
-                        val end = editUrl.selectionEnd
-                        val selectedText = if (start >= 0 && end > start) {
-                            editUrl.text.substring(start, end)
-                        } else {
-                            editUrl.text.toString()
-                        }
-                        if (selectedText.isNotEmpty()) {
-                            clipboard.setPrimaryClip(
-                                android.content.ClipData.newPlainText("النص المنسوخ", selectedText)
-                            )
-                            Toast.makeText(this, "تم النسخ", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    3 -> editUrl.selectAll()
-                }
-                true
+        editUrl.setOnLongClickListener {
+            val textToCopy = editUrl.text?.toString().orEmpty()
+            if (textToCopy.isNotEmpty()) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("نص شريط البحث", textToCopy)
+                )
+                Toast.makeText(this, "تم نسخ النص بالكامل", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "شريط البحث فارغ", Toast.LENGTH_SHORT).show()
             }
-            pasteMenu.show()
             true
         }
         progressBar = findViewById(R.id.progressBar)
