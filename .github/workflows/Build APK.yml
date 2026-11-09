@@ -1,5 +1,5 @@
-# Build only when manually requested
-# Triggered for the current source build.
+# Build on explicit workflow dispatch or when this build workflow is updated.
+# Source changes are built by manually running this workflow.
 name: Build APK
 
 on:
