@@ -3425,7 +3425,7 @@ class BrowserActivity : Activity() {
                 if (document.documentElement) {
                   window.__pureNightObserver.observe(document.documentElement, {
                     childList:true, subtree:true, attributes:true,
-                    attributeFilter:['style','class']
+                    attributeFilter:['class']
                   });
                 }
               } catch (e) {}
