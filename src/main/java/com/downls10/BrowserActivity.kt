@@ -1544,61 +1544,75 @@ class BrowserActivity : Activity() {
             ): Boolean {
                 val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
 
-                // نرد على الصفحة فورًا بـ WebView مؤقت يلتقط رابط النافذة فقط.
-                // الاحتفاظ برسالة النافذة حتى يضغط المستخدم «سماح» كان يوقف التطبيق
-                // (المتصفح يُلغي النافذة المعلّقة إذا طلبت الصفحة نافذة أخرى أو طال الانتظار).
+                // استخدم WebView مؤقتًا حقيقيًا لتنفيذ صفحة النافذة المنبثقة وتحويلاتها،
+                // بدلاً من تعطيل JavaScript أو حظر موارد الصفحة؛ كثير من مواقع التحميل
+                // تنشئ about:blank أولاً ثم تغيّر العنوان بواسطة JavaScript.
                 val temp = WebView(this@BrowserActivity)
-                // This temporary WebView only observes popup URLs; it must never run
-                // page JavaScript or access local files/content while capturing them.
                 temp.settings.apply {
-                    javaScriptEnabled = false
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
                     javaScriptCanOpenWindowsAutomatically = false
+                    setSupportMultipleWindows(false)
+                    loadsImagesAutomatically = true
+                    blockNetworkImage = false
+                    mixedContentMode = view.settings.mixedContentMode
                     allowFileAccess = false
                     allowContentAccess = false
                     allowFileAccessFromFileURLs = false
                     allowUniversalAccessFromFileURLs = false
-                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
                 }
-                CookieManager.getInstance().setAcceptThirdPartyCookies(temp, false)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(temp, true)
+
                 var finished = false
+                var latestPopupUrl: String? = null
+                var confirmRunnable: Runnable? = null
 
                 fun dispose() {
                     if (finished) return
                     finished = true
-                    // لا نهدم الـ WebView داخل ردّه نفسه: ننفّذ ذلك بعد انتهاء الاستدعاء الحالي
+                    confirmRunnable?.let(mainHandler::removeCallbacks)
                     mainHandler.post {
-                        try { temp.stopLoading() } catch (e: Exception) { }
-                        try { temp.destroy() } catch (e: Exception) { }
+                        try { temp.stopLoading() } catch (_: Exception) { }
+                        try { temp.destroy() } catch (_: Exception) { }
                     }
                 }
 
-                fun capture(rawUrl: String?) {
+                fun scheduleConfirmation(rawUrl: String?) {
                     if (finished) return
-                    val u = rawUrl?.trim().orEmpty()
-                    val lower = u.lowercase()
-                    if (u.isEmpty() || lower.startsWith("about:") || lower.startsWith("javascript:") ||
-                        lower.startsWith("data:") || lower.startsWith("blob:")) return
-                    dispose()
-                    // كل نافذة منبثقة تحتاج موافقة صريحة، حتى لو طلبها الموقع
-                    // أثناء نقرة على صفحة نتائج البحث. لا توجد استثناءات للفتح التلقائي.
-                    showPopupConfirmDialog(u)
+                    val candidate = rawUrl?.trim().orEmpty()
+                    val lower = candidate.lowercase(Locale.US)
+                    if (candidate.isBlank() || lower.startsWith("about:") ||
+                        lower.startsWith("javascript:") || lower.startsWith("data:") ||
+                        lower.startsWith("blob:")) return
+
+                    latestPopupUrl = candidate
+                    confirmRunnable?.let(mainHandler::removeCallbacks)
+                    // انتظر استقرار الرابط قليلاً حتى تكتمل تحويلات JavaScript
+                    // المتتابعة، ثم اعرض الرابط النهائي للمستخدم.
+                    confirmRunnable = Runnable {
+                        val confirmedUrl = latestPopupUrl
+                        if (!finished && !confirmedUrl.isNullOrBlank()) {
+                            dispose()
+                            showPopupConfirmDialog(confirmedUrl)
+                        }
+                    }.also { mainHandler.postDelayed(it, 1200L) }
                 }
 
                 temp.webViewClient = object : WebViewClient() {
-                    // لا نحمّل شيئًا من الشبكة داخل الـ WebView المؤقت
-                    override fun shouldInterceptRequest(v: WebView, request: WebResourceRequest): WebResourceResponse? =
-                        WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
-
                     override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                        capture(request.url.toString())
-                        return true
+                        // اسمح للصفحة المؤقتة بمتابعة التحويل الحقيقي، والتقط الرابط الرئيسي فقط.
+                        if (request.isForMainFrame) scheduleConfirmation(request.url.toString())
+                        return false
                     }
 
                     override fun onPageStarted(v: WebView, url: String?, favicon: android.graphics.Bitmap?) {
-                        capture(url)
+                        scheduleConfirmation(url)
                     }
                 }
+
+                // حماية من بقاء نافذة فارغة معلّقة إلى الأبد.
+                mainHandler.postDelayed({ dispose() }, 15000L)
 
                 transport.webView = temp
                 resultMsg.sendToTarget()
