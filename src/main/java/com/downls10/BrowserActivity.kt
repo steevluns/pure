@@ -3379,11 +3379,18 @@ class BrowserActivity : Activity() {
                 function nearWhite(c) { return c && c[0] > 232 && c[1] > 232 && c[2] > 232; }
                 function nearBlack(c) { return c && c[0] < 65 && c[1] < 65 && c[2] < 65; }
 
+                function setOwnedStyle(el, prop, value) {
+                  var key = prop === 'background-color' ? 'bg' : (prop === 'box-shadow' ? 'shadow' : 'fg');
+                  var marker = 'data-pure-night-' + key + '-saved';
+                  if (!el.hasAttribute(marker)) {
+                    el.setAttribute(marker, '1');
+                    el.setAttribute('data-pure-night-' + key + '-value', el.style.getPropertyValue(prop));
+                    el.setAttribute('data-pure-night-' + key + '-priority', el.style.getPropertyPriority(prop));
+                  }
+                  el.style.setProperty(prop, value, 'important');
+                }
                 function darkenPage() {
                   if (!document.body) return;
-                  document.documentElement.style.setProperty('background-color', '#000', 'important');
-                  document.body.style.setProperty('background-color', '#000', 'important');
-                  document.body.style.setProperty('color', '#eee', 'important');
                   var nodes = document.body.querySelectorAll('*');
                   for (var i = 0; i < nodes.length; i++) {
                     var el = nodes[i];
@@ -3393,15 +3400,15 @@ class BrowserActivity : Activity() {
                     var bg = rgb(cs.backgroundColor);
                     var fg = rgb(cs.color);
                     if (nearWhite(bg)) {
-                      el.style.setProperty('background-color', '#101010', 'important');
+                      setOwnedStyle(el, 'background-color', '#101010');
                     }
                     // Keep link colors, brand colors and all non-neutral text colors.
                     if (!el.closest('a') && nearBlack(fg)) {
-                      el.style.setProperty('color', '#eee', 'important');
+                      setOwnedStyle(el, 'color', '#eee');
                     }
                     // Avoid retaining a light shadow that looks like a white border.
                     if (cs.boxShadow && cs.boxShadow !== 'none' && /rgba?\\(\\s*255\\s*,\\s*255\\s*,\\s*255/i.test(cs.boxShadow)) {
-                      el.style.setProperty('box-shadow', 'none', 'important');
+                      setOwnedStyle(el, 'box-shadow', 'none');
                     }
                   }
                 }
@@ -3438,18 +3445,21 @@ class BrowserActivity : Activity() {
                 window.__pureNightQueued = false;
                 var style = document.getElementById('__pure_selective_night_mode__');
                 if (style) style.remove();
-                // إزالة الأنماط التي أضافها الوضع الليلي وإرجاع الصفحة إلى تصميم الموقع الأصلي.
-                var nodes = document.querySelectorAll('body, body *');
+                var nodes = document.querySelectorAll('[data-pure-night-bg-saved], [data-pure-night-fg-saved], [data-pure-night-shadow-saved]');
                 nodes.forEach(function(el) {
-                  ['background-color','color','box-shadow'].forEach(function(p) {
-                    el.style.removeProperty(p);
+                  [['bg','background-color'],['fg','color'],['shadow','box-shadow']].forEach(function(pair) {
+                    var key = pair[0], prop = pair[1];
+                    if (el.hasAttribute('data-pure-night-' + key + '-saved')) {
+                      var value = el.getAttribute('data-pure-night-' + key + '-value') || '';
+                      var priority = el.getAttribute('data-pure-night-' + key + '-priority') || '';
+                      if (value) el.style.setProperty(prop, value, priority);
+                      else el.style.removeProperty(prop);
+                      el.removeAttribute('data-pure-night-' + key + '-saved');
+                      el.removeAttribute('data-pure-night-' + key + '-value');
+                      el.removeAttribute('data-pure-night-' + key + '-priority');
+                    }
                   });
                 });
-                if (document.documentElement) document.documentElement.style.removeProperty('background-color');
-                if (document.body) {
-                  document.body.style.removeProperty('background-color');
-                  document.body.style.removeProperty('color');
-                }
               } catch(e) {}
             })();
         """.trimIndent()
