@@ -2857,18 +2857,10 @@ class BrowserActivity : Activity() {
         val lower = cleanUrl.lowercase()
         val isWebUrl = lower.startsWith("http://") || lower.startsWith("https://")
 
-        // إذا كانت النافذة المنبثقة تحتوي رابط ملف مباشر، فزر «سماح» يبدأ
-        // التنزيل مباشرة بدل تحميل الرابط داخل WebView ثم فقدان حدث التنزيل.
-        if (isWebUrl && looksLikeDirectFileUrl(cleanUrl)) {
-            confirmDownload(
-                cleanUrl,
-                suggestedFileName = null,
-                userAgent = currentWebView().settings.userAgentString,
-                referer = currentWebView().url
-            )
-            return
-        }
-
+        // افتح رابط النافذة المنبثقة داخل تبويب المتصفح حتى تظهر صفحة الاستضافة أولاً.
+        // لا نفترض أن امتداد الرابط يعني أن الملف جاهز للتنزيل؛ بعض مواقع الاستضافة
+        // تستخدم روابط تنتهي بامتداد ملف لكنها تحتاج صفحة وسيطة/جلسة/تحويل.
+        // عند الوصول إلى استجابة ملف فعلية، يتولى setDownloadListener بدء مسار التنزيل.
         if (!isWebUrl || MegaSupport.isMegaFileLink(cleanUrl)) {
             // magnet/ftp/Mega/تطبيق خارجي: يتولاها مسار التنقل الحالي بدون تبويب فارغ
             navigateWithSafetyCheck(currentWebView(), cleanUrl)
