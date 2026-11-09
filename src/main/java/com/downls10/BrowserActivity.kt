@@ -3345,26 +3345,111 @@ class BrowserActivity : Activity() {
      * الوضع الليلي غير تدخلي: لا نغيّر DOM أو ألوان أو خلفيات أو فلاتر عناصر المواقع.
      * نزيل فقط الأنماط القديمة التي كان إصدار سابق من التطبيق قد أضافها.
      */
+    /**
+     * يطبق الوضع الليلي على محتوى صفحات الويب ونتائج البحث دون قلب الصور
+     * أو الأيقونات أو ألوان الأزرار وحقول الإدخال.
+     */
     private fun applyNightModeJs(webView: WebView) {
-        removeNightModeJs(webView)
+        val js = """
+            (function() {
+              try {
+                var STYLE_ID = '__pure_selective_night_mode__';
+                if (!document.getElementById(STYLE_ID)) {
+                  var style = document.createElement('style');
+                  style.id = STYLE_ID;
+                  style.textContent = [
+                    'html, body { background-color:#000 !important; color:#eee !important; }',
+                    'body { min-height:100vh; }',
+                    '::selection { background:#315b91 !important; color:#fff !important; }'
+                  ].join('\\n');
+                  (document.head || document.documentElement).appendChild(style);
+                }
+
+                function isProtected(el) {
+                  if (!el || !el.tagName) return true;
+                  var tag = el.tagName.toLowerCase();
+                  if (/^(img|picture|video|canvas|svg|path|use|input|textarea|select|option|button|iframe|object|embed)$/i.test(tag)) return true;
+                  if (el.closest && el.closest('svg, [role="img"], [role="button"], button, input, textarea, select, [class*="icon" i], [class*="logo" i], [aria-hidden="true"]')) return true;
+                  return false;
+                }
+                function rgb(value) {
+                  var m = String(value || '').match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/i);
+                  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+                }
+                function nearWhite(c) { return c && c[0] > 232 && c[1] > 232 && c[2] > 232; }
+                function nearBlack(c) { return c && c[0] < 65 && c[1] < 65 && c[2] < 65; }
+
+                function darkenPage() {
+                  if (!document.body) return;
+                  document.documentElement.style.setProperty('background-color', '#000', 'important');
+                  document.body.style.setProperty('background-color', '#000', 'important');
+                  document.body.style.setProperty('color', '#eee', 'important');
+                  var nodes = document.body.querySelectorAll('*');
+                  for (var i = 0; i < nodes.length; i++) {
+                    var el = nodes[i];
+                    if (isProtected(el)) continue;
+                    var cs;
+                    try { cs = window.getComputedStyle(el); } catch (_) { continue; }
+                    var bg = rgb(cs.backgroundColor);
+                    var fg = rgb(cs.color);
+                    if (nearWhite(bg)) {
+                      el.style.setProperty('background-color', '#101010', 'important');
+                    }
+                    // Keep link colors, brand colors and all non-neutral text colors.
+                    if (!el.closest('a') && nearBlack(fg)) {
+                      el.style.setProperty('color', '#eee', 'important');
+                    }
+                    // Avoid retaining a light shadow that looks like a white border.
+                    if (cs.boxShadow && cs.boxShadow !== 'none' && /rgba?\\(\\s*255\\s*,\\s*255\\s*,\\s*255/i.test(cs.boxShadow)) {
+                      el.style.setProperty('box-shadow', 'none', 'important');
+                    }
+                  }
+                }
+                darkenPage();
+                if (window.__pureNightObserver) window.__pureNightObserver.disconnect();
+                window.__pureNightObserver = new MutationObserver(function() {
+                  if (window.__pureNightQueued) return;
+                  window.__pureNightQueued = true;
+                  requestAnimationFrame(function() {
+                    window.__pureNightQueued = false;
+                    darkenPage();
+                  });
+                });
+                if (document.documentElement) {
+                  window.__pureNightObserver.observe(document.documentElement, {
+                    childList:true, subtree:true, attributes:true,
+                    attributeFilter:['style','class']
+                  });
+                }
+              } catch (e) {}
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
     }
 
     private fun removeNightModeJs(webView: WebView) {
         val js = """
             (function(){
               try {
-                var ids=['__downls10_night_mode__','__downls10_google_search_dark__'];
-                ids.forEach(function(id){var s=document.getElementById(id);if(s)s.remove();});
-                ['__downls10NightObserver','__downls10NightLinkObserver','__downls10GoogleDarkObserver'].forEach(function(k){
-                  if(window[k] && window[k].disconnect){window[k].disconnect();}
-                  window[k]=null;
+                if (window.__pureNightObserver) {
+                  window.__pureNightObserver.disconnect();
+                  window.__pureNightObserver = null;
+                }
+                window.__pureNightQueued = false;
+                var style = document.getElementById('__pure_selective_night_mode__');
+                if (style) style.remove();
+                // إزالة الأنماط التي أضافها الوضع الليلي وإرجاع الصفحة إلى تصميم الموقع الأصلي.
+                var nodes = document.querySelectorAll('body, body *');
+                nodes.forEach(function(el) {
+                  ['background-color','color','box-shadow'].forEach(function(p) {
+                    el.style.removeProperty(p);
+                  });
                 });
-                ['__downls10NightTimer','__downls10GoogleDarkTimer'].forEach(function(k){
-                  if(window[k]) clearInterval(window[k]);
-                  window[k]=null;
-                });
-                window.__downls10NightDark=undefined;
-                window.__downls10NightOriginalDark=undefined;
+                if (document.documentElement) document.documentElement.style.removeProperty('background-color');
+                if (document.body) {
+                  document.body.style.removeProperty('background-color');
+                  document.body.style.removeProperty('color');
+                }
               } catch(e) {}
             })();
         """.trimIndent()
