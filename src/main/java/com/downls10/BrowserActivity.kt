@@ -2461,40 +2461,69 @@ class BrowserActivity : Activity() {
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
     }
 
+    private var suggestionDebounce: Runnable? = null
+
     private fun setupGoogleSuggestions() {
         editUrl.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val query = s?.toString()?.trim().orEmpty()
                 val generation = ++suggestionGeneration
+
+                // ألغِ طلب الكتابة السابق وانتظر توقف المستخدم قليلاً قبل الاتصال بالشبكة.
+                suggestionDebounce?.let(mainHandler::removeCallbacks)
                 if (query.length < 2 || (query.contains(".") && !query.contains(" "))) {
                     suggestionsPopup?.dismiss()
                     return
                 }
-                bgExecutor.execute {
-                    val result = try {
-                        val url = URL("https://suggestqueries.google.com/complete/search?client=firefox&hl=ar&q=" + Uri.encode(query))
-                        val connection = url.openConnection() as HttpURLConnection
-                        connection.connectTimeout = 5000
-                        connection.readTimeout = 5000
-                        connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                        try {
-                            val json = connection.inputStream.bufferedReader().use { it.readText() }
-                            val arr = org.json.JSONArray(json)
-                            val values = arr.optJSONArray(1) ?: org.json.JSONArray()
-                            (0 until values.length()).mapNotNull { values.optString(it).takeIf { v -> v.isNotBlank() } }.distinct().take(12)
-                        } finally { connection.disconnect() }
-                    } catch (_: Exception) { emptyList<String>() }
-                    mainHandler.post {
-                        if (generation == suggestionGeneration && editUrl.hasFocus() && editUrl.text.toString().trim() == query) {
-                            showSuggestionRows(result)
+
+                suggestionDebounce = Runnable {
+                    bgExecutor.execute {
+                        val result = try {
+                            val url = URL(
+                                "https://suggestqueries.google.com/complete/search?client=firefox&hl=ar&q=" +
+                                    Uri.encode(query)
+                            )
+                            val connection = url.openConnection() as HttpURLConnection
+                            connection.connectTimeout = 2500
+                            connection.readTimeout = 2500
+                            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                            try {
+                                val json = connection.inputStream.bufferedReader().use { it.readText() }
+                                val arr = org.json.JSONArray(json)
+                                val values = arr.optJSONArray(1) ?: org.json.JSONArray()
+                                (0 until values.length())
+                                    .mapNotNull { values.optString(it).takeIf(String::isNotBlank) }
+                                    .distinct()
+                                    .take(12)
+                            } finally {
+                                connection.disconnect()
+                            }
+                        } catch (_: Exception) {
+                            emptyList<String>()
+                        }
+
+                        mainHandler.post {
+                            if (!isFinishing && generation == suggestionGeneration &&
+                                editUrl.hasFocus() && editUrl.text.toString().trim() == query) {
+                                showSuggestionRows(result)
+                            }
                         }
                     }
-                }
+                }.also { mainHandler.postDelayed(it, 300) }
             }
+
             override fun afterTextChanged(s: Editable?) {}
         })
-        editUrl.setOnFocusChangeListener { _, focused -> if (!focused) suggestionsPopup?.dismiss() }
+
+        editUrl.setOnFocusChangeListener { _, focused ->
+            if (!focused) {
+                suggestionDebounce?.let(mainHandler::removeCallbacks)
+                suggestionGeneration++
+                suggestionsPopup?.dismiss()
+            }
+        }
     }
 
     private fun showSuggestionRows(items: List<String>) {
@@ -2604,32 +2633,11 @@ class BrowserActivity : Activity() {
         ).apply {
             // جعل النافذة ثابتة: لا تختفي عند النقر خارجها أو عند التفاعل مع شريط البحث
             isOutsideTouchable = false
-            isFocusable = true
+            // إبقاء التركيز في حقل البحث ولوحة المفاتيح عند ظهور الاقتراحات.
+            isFocusable = false
+            inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0xFF202020.toInt()))
-            
-            // منع إغلاق النافذة عند لمس شريط البحث (editUrl) أو التمرير داخل القائمة
-            setTouchInterceptor { v, event ->
-                if (event.action == MotionEvent.ACTION_OUTSIDE) {
-                    true // استهلاك الحدث، لا تغلق النافذة
-                } else if (event.action == MotionEvent.ACTION_DOWN) {
-                    val location = IntArray(2)
-                    v.getLocationOnScreen(location)
-                    val x = event.rawX
-                    val y = event.rawY
-                    // إذا كان النقر داخل حدود القائمة، لا تغلق
-                    val inList = x >= location[0] && x <= location[0] + v.width &&
-                                 y >= location[1] && y <= location[1] + v.height
-                    // إذا كان النقر على editUrl (شريط البحث)، لا تغلق
-                    val editUrlLocation = IntArray(2)
-                    editUrl.getLocationOnScreen(editUrlLocation)
-                    val inEditUrl = x >= editUrlLocation[0] && x <= editUrlLocation[0] + editUrl.width &&
-                                    y >= editUrlLocation[1] && y <= editUrlLocation[1] + editUrl.height
-                    !inList && !inEditUrl
-                } else {
-                    false
-                }
-            }
-            
+
             // إظهار الاقتراحات تحت شريط البحث مباشرةً (وليس فوقه)، حتى لو كانت لوحة المفاتيح مفتوحة
             val location = IntArray(2)
             editUrl.getLocationOnScreen(location)
