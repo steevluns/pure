@@ -89,9 +89,9 @@ class MainActivity : Activity() {
             textSize = 15f
             setTextColor(0xFF202B3C.toInt())
             setPadding(12, 12, 12, 12)
-            textIsSelectable = true
+            setTextIsSelectable(true)
         }
-        scroll.addView(chatBox, ScrollView.LayoutParams(-1, -2))
+        scroll.addView(chatBox, ViewGroup.LayoutParams(-1, -2))
         val scrollParams = LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = 10
             bottomMargin = 10
