@@ -20,7 +20,7 @@ jobs:
         run: |
           $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           if (!(Test-Path $compiler)) { throw "C# compiler not found: $compiler" }
-          & $compiler /nologo /platform:x64 /target:winexe /optimize+ /out:Colors10.exe /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:Microsoft.Win32.Registry.dll Colors10.cs
+          & $compiler /nologo /platform:x64 /target:winexe /optimize+ /out:Colors10.exe /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll Colors10.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path Colors10.exe)) { throw "Build did not produce Colors10.exe" }
           Get-Item Colors10.exe | Format-List Name,Length,LastWriteTime
