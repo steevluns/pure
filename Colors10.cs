@@ -259,6 +259,8 @@ namespace Colors10App
                 if (setColor(context, t.Adapter, t.Display, ADL_DISPLAY_COLOR_SATURATION, adjusted) != ADL_OK)
                     allOk = false;
             }
+            if (!allOk) Status = "AMD driver rejected the saturation change";
+            else Status = "AMD ADL2 saturation active";
             return allOk;
         }
 
