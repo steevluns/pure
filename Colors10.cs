@@ -45,7 +45,154 @@ namespace Colors10App
         public static extern bool MagUninitialize();
 
         [DllImport("Magnification.dll")]
-        public static extern bool MagSetFullscreenColorEffect(ref MAGCOLOREFFECT pEffect);
+        public static extern bool MagSetColorEffect(IntPtr hwnd, ref MAGCOLOREFFECT pEffect);
+
+        [DllImport("Magnification.dll")]
+        public static extern bool MagSetWindowSource(IntPtr hwnd, ref RECT rect);
+
+        [DllImport("Magnification.dll")]
+        public static extern bool MagSetWindowFilterList(IntPtr hwnd, int mode, int count, IntPtr[] windows);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName,
+            uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu,
+            IntPtr instance, IntPtr param);
+
+        [DllImport("user32.dll")]
+        public static extern bool DestroyWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y,
+            int cx, int cy, uint flags);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint colorKey, byte alpha, uint flags);
+
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(int index);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+    }
+
+    // Windows Vista/7-compatible magnifier-control overlay.
+    // The full-screen Magnification API is Windows 8+, so it cannot be used on Windows 7.
+    class SaturationOverlay : Form
+    {
+        const uint WS_CHILD = 0x40000000;
+        const uint WS_VISIBLE = 0x10000000;
+        const uint MS_SHOWMAGNIFIEDCURSOR = 0x0001;
+        const int MW_FILTERMODE_EXCLUDE = 0;
+        const uint SWP_NOACTIVATE = 0x0010;
+        static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+
+        IntPtr magnifier;
+        bool initialized;
+
+        protected override bool ShowWithoutActivation { get { return true; } }
+
+        public SaturationOverlay()
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            TopMost = true;
+            Bounds = SystemInformation.VirtualScreen;
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x00080000 | 0x00000020 | 0x00000080; // layered, transparent, tool window
+                return cp;
+            }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            Native.SetLayeredWindowAttributes(Handle, 0, 255, 0x00000002);
+            magnifier = Native.CreateWindowEx(0, "Magnifier", "Colors10Magnifier",
+                WS_CHILD | WS_VISIBLE | MS_SHOWMAGNIFIEDCURSOR,
+                0, 0, ClientSize.Width, ClientSize.Height,
+                Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+
+            if (magnifier == IntPtr.Zero) return;
+
+            Native.MagSetWindowFilterList(magnifier, MW_FILTERMODE_EXCLUDE, 1, new IntPtr[] { Handle });
+            initialized = UpdateSource();
+            Native.SetWindowPos(Handle, HWND_TOPMOST, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height,
+                SWP_NOACTIVATE);
+        }
+
+        public bool UpdateSource()
+        {
+            if (magnifier == IntPtr.Zero) return false;
+
+            Rectangle screen = SystemInformation.VirtualScreen;
+            Bounds = screen;
+            Native.SetWindowPos(magnifier, IntPtr.Zero, 0, 0, ClientSize.Width, ClientSize.Height,
+                SWP_NOACTIVATE);
+
+            Native.RECT source = new Native.RECT();
+            source.left = screen.Left;
+            source.top = screen.Top;
+            source.right = screen.Right;
+            source.bottom = screen.Bottom;
+            return Native.MagSetWindowSource(magnifier, ref source);
+        }
+
+        public bool SetSaturation(int value)
+        {
+            if (magnifier == IntPtr.Zero || !initialized) return false;
+
+            double s = 1.0 + value / 100.0;
+            double lr = 0.213, lg = 0.715, lb = 0.072;
+            float[] m = new float[25];
+
+            m[0] = (float)(lr + (1.0 - lr) * s);
+            m[1] = (float)(lg - lg * s);
+            m[2] = (float)(lb - lb * s);
+
+            m[5] = (float)(lr - lr * s);
+            m[6] = (float)(lg + (1.0 - lg) * s);
+            m[7] = (float)(lb - lb * s);
+
+            m[10] = (float)(lr - lr * s);
+            m[11] = (float)(lg - lg * s);
+            m[12] = (float)(lb + (1.0 - lb) * s);
+
+            m[18] = 1f;
+            m[24] = 1f;
+
+            Native.MAGCOLOREFFECT effect = new Native.MAGCOLOREFFECT();
+            effect.transform = m;
+            return Native.MagSetColorEffect(magnifier, ref effect);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (magnifier != IntPtr.Zero) UpdateSource();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (magnifier != IntPtr.Zero)
+            {
+                Native.DestroyWindow(magnifier);
+                magnifier = IntPtr.Zero;
+            }
+            base.Dispose(disposing);
+        }
     }
 
     class Profile
@@ -109,6 +256,7 @@ namespace Colors10App
         ushort[] origRamp = new ushort[768];
         bool haveOrig;
         bool magReady;
+        SaturationOverlay saturationOverlay;
 
         List<Profile> profiles = new List<Profile>();
         int regCount;
@@ -454,47 +602,44 @@ namespace Colors10App
         }
 
         // Color level (saturation): -100 = gray, 0 = normal, +100 = double color.
+        // Windows 7 uses the magnifier-control API; fullscreen magnifier APIs require Windows 8+.
         bool ApplyColorEffect(int v)
         {
             try
             {
-                if (!magReady && v == 0) return true;
+                if (v == 0)
+                {
+                    if (saturationOverlay != null)
+                    {
+                        saturationOverlay.Close();
+                        saturationOverlay.Dispose();
+                        saturationOverlay = null;
+                    }
+                    if (magReady)
+                    {
+                        Native.MagUninitialize();
+                        magReady = false;
+                    }
+                    return true;
+                }
+
                 if (!magReady)
                 {
                     magReady = Native.MagInitialize();
                     if (!magReady) return false;
                 }
 
-                double s = 1.0 + v / 100.0;
-                double lr = 0.213, lg = 0.715, lb = 0.072;
-                float[] m = new float[25];
+                if (saturationOverlay == null || saturationOverlay.IsDisposed)
+                {
+                    saturationOverlay = new SaturationOverlay();
+                    saturationOverlay.Show();
+                }
 
-                // MAGCOLOREFFECT uses a row-major 5x5 matrix.
-                // Each output channel is calculated from the input RGB channels.
-                // The previous code transposed these coefficients, so changing
-                // saturation did not produce the intended color adjustment.
-                m[0] = (float)(lr + (1.0 - lr) * s);
-                m[1] = (float)(lg - lg * s);
-                m[2] = (float)(lb - lb * s);
-
-                m[5] = (float)(lr - lr * s);
-                m[6] = (float)(lg + (1.0 - lg) * s);
-                m[7] = (float)(lb - lb * s);
-
-                m[10] = (float)(lr - lr * s);
-                m[11] = (float)(lg - lg * s);
-                m[12] = (float)(lb + (1.0 - lb) * s);
-
-                m[3 * 5 + 3] = 1f;
-                m[4 * 5 + 4] = 1f;
-
-                Native.MAGCOLOREFFECT eff = new Native.MAGCOLOREFFECT();
-                eff.transform = m;
-                return Native.MagSetFullscreenColorEffect(ref eff);
+                return saturationOverlay.SetSaturation(v);
             }
             catch
             {
-                return v == 0;
+                return false;
             }
         }
 
@@ -645,6 +790,8 @@ namespace Colors10App
 
         void OnDisplayChanged(object sender, EventArgs e)
         {
+            if (saturationOverlay != null && !saturationOverlay.IsDisposed)
+                saturationOverlay.UpdateSource();
             if (IsHandleCreated)
                 BeginInvoke(new MethodInvoker(ApplyRamp));
         }
@@ -666,15 +813,7 @@ namespace Colors10App
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             UnregisterHotkeys();
             if (haveOrig) SetRamp(origRamp);
-            try
-            {
-                if (magReady)
-                {
-                    ApplyColorEffect(0);
-                    Native.MagUninitialize();
-                    magReady = false;
-                }
-            }
+            try { ApplyColorEffect(0); }
             catch { }
             if (notify != null)
             {
