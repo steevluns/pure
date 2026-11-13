@@ -32,3 +32,5 @@ jobs:
           path: Colors10.exe
           if-no-files-found: error
           retention-days: 14
+
+# Manual build requested by repository owner; trigger Windows x64 validation.
