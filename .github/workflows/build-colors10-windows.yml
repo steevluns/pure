@@ -1,0 +1,34 @@
+name: Build Colors10 (Windows 7 x64)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Colors10.cs'
+      - '.github/workflows/build-colors10-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build x64 Windows application
+        shell: pwsh
+        run: |
+          $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (!(Test-Path $compiler)) { throw "C# compiler not found: $compiler" }
+          & $compiler /nologo /platform:x64 /target:winexe /optimize+ /out:Colors10.exe /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:Microsoft.Win32.Registry.dll Colors10.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path Colors10.exe)) { throw "Build did not produce Colors10.exe" }
+          Get-Item Colors10.exe | Format-List Name,Length,LastWriteTime
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Colors10-Windows7-x64
+          path: Colors10.exe
+          if-no-files-found: error
+          retention-days: 14
