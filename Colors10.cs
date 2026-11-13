@@ -469,17 +469,21 @@ namespace Colors10App
                 double lr = 0.213, lg = 0.715, lb = 0.072;
                 float[] m = new float[25];
 
-                m[0 * 5 + 0] = (float)(lr + (1.0 - lr) * s);
-                m[1 * 5 + 0] = (float)(lg - lg * s);
-                m[2 * 5 + 0] = (float)(lb - lb * s);
+                // MAGCOLOREFFECT uses a row-major 5x5 matrix.
+                // Each output channel is calculated from the input RGB channels.
+                // The previous code transposed these coefficients, so changing
+                // saturation did not produce the intended color adjustment.
+                m[0] = (float)(lr + (1.0 - lr) * s);
+                m[1] = (float)(lg - lg * s);
+                m[2] = (float)(lb - lb * s);
 
-                m[0 * 5 + 1] = (float)(lr - lr * s);
-                m[1 * 5 + 1] = (float)(lg + (1.0 - lg) * s);
-                m[2 * 5 + 1] = (float)(lb - lb * s);
+                m[5] = (float)(lr - lr * s);
+                m[6] = (float)(lg + (1.0 - lg) * s);
+                m[7] = (float)(lb - lb * s);
 
-                m[0 * 5 + 2] = (float)(lr - lr * s);
-                m[1 * 5 + 2] = (float)(lg - lg * s);
-                m[2 * 5 + 2] = (float)(lb + (1.0 - lb) * s);
+                m[10] = (float)(lr - lr * s);
+                m[11] = (float)(lg - lg * s);
+                m[12] = (float)(lb + (1.0 - lb) * s);
 
                 m[3 * 5 + 3] = 1f;
                 m[4 * 5 + 4] = 1f;
@@ -507,7 +511,7 @@ namespace Colors10App
             else if (!ok2)
             {
                 lblStatus.ForeColor = Color.Firebrick;
-                lblStatus.Text = "Color level needs Aero / Windows 7+";
+                lblStatus.Text = "Saturation unavailable: Windows magnification or display driver rejected the effect.";
             }
             else
             {
