@@ -31,167 +31,258 @@ namespace Colors10App
         [DllImport("user32.dll")]
         public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MAGCOLOREFFECT
-        {
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 25)]
-            public float[] transform;
-        }
-
-        [DllImport("Magnification.dll")]
-        public static extern bool MagInitialize();
-
-        [DllImport("Magnification.dll")]
-        public static extern bool MagUninitialize();
-
-        [DllImport("Magnification.dll")]
-        public static extern bool MagSetColorEffect(IntPtr hwnd, ref MAGCOLOREFFECT pEffect);
-
-        [DllImport("Magnification.dll")]
-        public static extern bool MagSetWindowSource(IntPtr hwnd, ref RECT rect);
-
-        [DllImport("Magnification.dll")]
-        public static extern bool MagSetWindowFilterList(IntPtr hwnd, int mode, int count, IntPtr[] windows);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName,
-            uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu,
-            IntPtr instance, IntPtr param);
-
-        [DllImport("user32.dll")]
-        public static extern bool DestroyWindow(IntPtr hwnd);
-
-        [DllImport("user32.dll")]
-        public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y,
-            int cx, int cy, uint flags);
-
-        [DllImport("user32.dll")]
-        public static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint colorKey, byte alpha, uint flags);
-
-        [DllImport("user32.dll")]
-        public static extern int GetSystemMetrics(int index);
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct RECT
-        {
-            public int left;
-            public int top;
-            public int right;
-            public int bottom;
-        }
     }
 
-    // Windows Vista/7-compatible magnifier-control overlay.
-    // The full-screen Magnification API is Windows 8+, so it cannot be used on Windows 7.
-    class SaturationOverlay : Form
+
+    // AMD ADL2 saturation control. ADL is loaded dynamically so the app still starts
+    // when AMD drivers / ADL runtime are not installed.
+    sealed class ADL2SaturationController : IDisposable
     {
-        const uint WS_CHILD = 0x40000000;
-        const uint WS_VISIBLE = 0x10000000;
-        const uint MS_SHOWMAGNIFIEDCURSOR = 0x0001;
-        const int MW_FILTERMODE_EXCLUDE = 0;
-        const uint SWP_NOACTIVATE = 0x0010;
-        static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        const int ADL_OK = 0;
+        const int AMD_VENDOR_ID = 0x1002;
+        const int ADL_DISPLAY_COLOR_SATURATION = 1 << 2;
+        const int DISPLAY_CONNECTED_MAPPED = 0x3;
 
-        IntPtr magnifier;
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate IntPtr MemoryAlloc(int size);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int MainCreate(MemoryAlloc alloc, int connectedOnly, out IntPtr context);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int MainDestroy(IntPtr context);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int AdapterCount(IntPtr context, out int count);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int AdapterInfoGet(IntPtr context, IntPtr info, int size);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int DisplayInfoGet(IntPtr context, int adapter, out int count, out IntPtr info, int forceDetect);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ColorCapsGet(IntPtr context, int adapter, int display, out int caps, out int valid);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ColorGet(IntPtr context, int adapter, int display, int type,
+            out int current, out int def, out int min, out int max, out int step);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ColorSet(IntPtr context, int adapter, int display, int type, int value);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        struct AdapterInfo
+        {
+            public int Size, AdapterIndex;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string UDID;
+            public int BusNumber, DriverNumber, FunctionNumber, VendorID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string AdapterName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string DisplayName;
+            public int Present, Exist;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string DriverPath;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string DriverPathExt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string PNPString;
+            public int OSDisplayIndex;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        struct DisplayID
+        {
+            public int LogicalIndex, PhysicalIndex, LogicalAdapterIndex, PhysicalAdapterIndex;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        struct DisplayInfo
+        {
+            public DisplayID ID;
+            public int ControllerIndex;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string Name;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string Manufacturer;
+            public int DisplayType, OutputType, Connector, InfoMask, InfoValue;
+        }
+
+        sealed class Target
+        {
+            public int Adapter, Display, Original, Minimum, Maximum, Step;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr LoadLibrary(string fileName);
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        static extern IntPtr GetProcAddress(IntPtr module, string name);
+        [DllImport("kernel32.dll")]
+        static extern bool FreeLibrary(IntPtr module);
+
+        IntPtr module, context;
+        MemoryAlloc allocator;
+        MainDestroy destroy;
+        ColorSet setColor;
+        readonly List<Target> targets = new List<Target>();
         bool initialized;
+        public string Status { get; private set; }
 
-        protected override bool ShowWithoutActivation { get { return true; } }
+        static IntPtr Alloc(int size) { return Marshal.AllocCoTaskMem(size); }
 
-        public SaturationOverlay()
+        T Load<T>(string name) where T : class
         {
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            TopMost = true;
-            Bounds = SystemInformation.VirtualScreen;
+            IntPtr p = GetProcAddress(module, name);
+            if (p == IntPtr.Zero) return null;
+            return Marshal.GetDelegateForFunctionPointer(p, typeof(T)) as T;
         }
 
-        protected override CreateParams CreateParams
+        public ADL2SaturationController()
         {
-            get
+            try
             {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00080000 | 0x00000020 | 0x00000080; // layered, transparent, tool window
-                return cp;
+                module = LoadLibrary("atiadlxx.dll");
+                if (module == IntPtr.Zero)
+                {
+                    Status = "AMD ADL2 not found (AMD driver required)";
+                    return;
+                }
+
+                allocator = Alloc;
+                MainCreate create = Load<MainCreate>("ADL2_Main_Control_Create");
+                destroy = Load<MainDestroy>("ADL2_Main_Control_Destroy");
+                AdapterCount getCount = Load<AdapterCount>("ADL2_Adapter_NumberOfAdapters_Get");
+                AdapterInfoGet getAdapters = Load<AdapterInfoGet>("ADL2_Adapter_AdapterInfo_Get");
+                DisplayInfoGet getDisplays = Load<DisplayInfoGet>("ADL2_Display_DisplayInfo_Get");
+                ColorCapsGet getCaps = Load<ColorCapsGet>("ADL2_Display_ColorCaps_Get");
+                ColorGet getColor = Load<ColorGet>("ADL2_Display_Color_Get");
+                setColor = Load<ColorSet>("ADL2_Display_Color_Set");
+
+                if (create == null || destroy == null || getCount == null || getAdapters == null ||
+                    getDisplays == null || getCaps == null || getColor == null || setColor == null)
+                {
+                    Status = "AMD ADL2 color functions unavailable";
+                    return;
+                }
+
+                if (create(allocator, 1, out context) != ADL_OK || context == IntPtr.Zero)
+                {
+                    Status = "AMD driver rejected ADL2 initialization";
+                    return;
+                }
+
+                int adapterCount;
+                if (getCount(context, out adapterCount) != ADL_OK || adapterCount <= 0)
+                {
+                    Status = "No AMD adapter detected by ADL2";
+                    return;
+                }
+
+                int adapterSize = Marshal.SizeOf(typeof(AdapterInfo));
+                IntPtr adapterBuffer = Marshal.AllocHGlobal(adapterSize * adapterCount);
+                try
+                {
+                    for (int i = 0; i < adapterCount; i++)
+                    {
+                        IntPtr item = IntPtr.Add(adapterBuffer, i * adapterSize);
+                        for (int b = 0; b < adapterSize; b += 4) Marshal.WriteInt32(item, b, 0);
+                        Marshal.WriteInt32(item, adapterSize > 0 ? 0 : 0, adapterSize);
+                    }
+
+                    if (getAdapters(context, adapterBuffer, adapterSize * adapterCount) != ADL_OK)
+                    {
+                        Status = "Could not enumerate AMD adapters";
+                        return;
+                    }
+
+                    int displaySize = Marshal.SizeOf(typeof(DisplayInfo));
+                    for (int i = 0; i < adapterCount; i++)
+                    {
+                        AdapterInfo adapter = (AdapterInfo)Marshal.PtrToStructure(
+                            IntPtr.Add(adapterBuffer, i * adapterSize), typeof(AdapterInfo));
+                        if (adapter.VendorID != AMD_VENDOR_ID) continue;
+
+                        int displayCount;
+                        IntPtr displayBuffer;
+                        if (getDisplays(context, adapter.AdapterIndex, out displayCount, out displayBuffer, 0) != ADL_OK ||
+                            displayBuffer == IntPtr.Zero) continue;
+
+                        try
+                        {
+                            for (int j = 0; j < displayCount; j++)
+                            {
+                                DisplayInfo display = (DisplayInfo)Marshal.PtrToStructure(
+                                    IntPtr.Add(displayBuffer, j * displaySize), typeof(DisplayInfo));
+                                if ((display.InfoValue & DISPLAY_CONNECTED_MAPPED) != DISPLAY_CONNECTED_MAPPED)
+                                    continue;
+                                if (display.ID.LogicalAdapterIndex != adapter.AdapterIndex) continue;
+
+                                int caps, valid;
+                                if (getCaps(context, adapter.AdapterIndex, display.ID.LogicalIndex, out caps, out valid) != ADL_OK ||
+                                    ((caps & valid & ADL_DISPLAY_COLOR_SATURATION) == 0)) continue;
+
+                                int current, def, min, max, step;
+                                if (getColor(context, adapter.AdapterIndex, display.ID.LogicalIndex,
+                                    ADL_DISPLAY_COLOR_SATURATION, out current, out def, out min, out max, out step) != ADL_OK)
+                                    continue;
+
+                                Target t = new Target();
+                                t.Adapter = adapter.AdapterIndex;
+                                t.Display = display.ID.LogicalIndex;
+                                t.Original = current;
+                                t.Minimum = min;
+                                t.Maximum = max;
+                                t.Step = step > 0 ? step : 1;
+                                targets.Add(t);
+                            }
+                        }
+                        finally { Marshal.FreeCoTaskMem(displayBuffer); }
+                    }
+                }
+                finally { Marshal.FreeHGlobal(adapterBuffer); }
+
+                if (targets.Count == 0)
+                {
+                    Status = "AMD driver exposes no controllable saturation display";
+                    return;
+                }
+
+                initialized = true;
+                Status = "AMD ADL2 saturation ready";
             }
-        }
-
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            Native.SetLayeredWindowAttributes(Handle, 0, 255, 0x00000002);
-            magnifier = Native.CreateWindowEx(0, "Magnifier", "Colors10Magnifier",
-                WS_CHILD | WS_VISIBLE | MS_SHOWMAGNIFIEDCURSOR,
-                0, 0, ClientSize.Width, ClientSize.Height,
-                Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-
-            if (magnifier == IntPtr.Zero) return;
-
-            Native.MagSetWindowFilterList(magnifier, MW_FILTERMODE_EXCLUDE, 1, new IntPtr[] { Handle });
-            initialized = UpdateSource();
-            Native.SetWindowPos(Handle, HWND_TOPMOST, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height,
-                SWP_NOACTIVATE);
-        }
-
-        public bool UpdateSource()
-        {
-            if (magnifier == IntPtr.Zero) return false;
-
-            Rectangle screen = SystemInformation.VirtualScreen;
-            Bounds = screen;
-            Native.SetWindowPos(magnifier, IntPtr.Zero, 0, 0, ClientSize.Width, ClientSize.Height,
-                SWP_NOACTIVATE);
-
-            Native.RECT source = new Native.RECT();
-            source.left = screen.Left;
-            source.top = screen.Top;
-            source.right = screen.Right;
-            source.bottom = screen.Bottom;
-            return Native.MagSetWindowSource(magnifier, ref source);
+            catch (Exception ex)
+            {
+                Status = "ADL2 initialization failed: " + ex.Message;
+            }
         }
 
         public bool SetSaturation(int value)
         {
-            if (magnifier == IntPtr.Zero || !initialized) return false;
-
-            double s = 1.0 + value / 100.0;
-            double lr = 0.213, lg = 0.715, lb = 0.072;
-            float[] m = new float[25];
-
-            m[0] = (float)(lr + (1.0 - lr) * s);
-            m[1] = (float)(lg - lg * s);
-            m[2] = (float)(lb - lb * s);
-
-            m[5] = (float)(lr - lr * s);
-            m[6] = (float)(lg + (1.0 - lg) * s);
-            m[7] = (float)(lb - lb * s);
-
-            m[10] = (float)(lr - lr * s);
-            m[11] = (float)(lg - lg * s);
-            m[12] = (float)(lb + (1.0 - lb) * s);
-
-            m[18] = 1f;
-            m[24] = 1f;
-
-            Native.MAGCOLOREFFECT effect = new Native.MAGCOLOREFFECT();
-            effect.transform = m;
-            return Native.MagSetColorEffect(magnifier, ref effect);
-        }
-
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            if (magnifier != IntPtr.Zero) UpdateSource();
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (magnifier != IntPtr.Zero)
+            if (!initialized || setColor == null) return false;
+            bool allOk = true;
+            foreach (Target t in targets)
             {
-                Native.DestroyWindow(magnifier);
-                magnifier = IntPtr.Zero;
+                double fraction = value / 100.0;
+                double requested = fraction < 0
+                    ? t.Original + (t.Minimum - t.Original) * (-fraction)
+                    : t.Original + (t.Maximum - t.Original) * fraction;
+                int adjusted = (int)Math.Round(requested);
+                adjusted = Math.Max(t.Minimum, Math.Min(t.Maximum, adjusted));
+                adjusted = t.Minimum + (int)Math.Round((adjusted - t.Minimum) / (double)t.Step) * t.Step;
+                adjusted = Math.Max(t.Minimum, Math.Min(t.Maximum, adjusted));
+                if (setColor(context, t.Adapter, t.Display, ADL_DISPLAY_COLOR_SATURATION, adjusted) != ADL_OK)
+                    allOk = false;
             }
-            base.Dispose(disposing);
+            return allOk;
+        }
+
+        public void Restore()
+        {
+            if (!initialized || setColor == null) return;
+            foreach (Target t in targets)
+                setColor(context, t.Adapter, t.Display, ADL_DISPLAY_COLOR_SATURATION, t.Original);
+        }
+
+        public void Dispose()
+        {
+            try { Restore(); } catch { }
+            if (context != IntPtr.Zero && destroy != null)
+            {
+                try { destroy(context); } catch { }
+                context = IntPtr.Zero;
+            }
+            initialized = false;
+            if (module != IntPtr.Zero)
+            {
+                FreeLibrary(module);
+                module = IntPtr.Zero;
+            }
         }
     }
 
@@ -255,8 +346,7 @@ namespace Colors10App
         ushort[] ramp = new ushort[768];
         ushort[] origRamp = new ushort[768];
         bool haveOrig;
-        bool magReady;
-        SaturationOverlay saturationOverlay;
+        ADL2SaturationController saturationController;
 
         List<Profile> profiles = new List<Profile>();
         int regCount;
@@ -304,6 +394,7 @@ namespace Colors10App
             }
             catch { haveOrig = false; }
 
+            saturationController = new ADL2SaturationController();
             RebuildRamp();
             LoadSliders();
 
@@ -601,46 +692,11 @@ namespace Colors10App
             return ok;
         }
 
-        // Color level (saturation): -100 = gray, 0 = normal, +100 = double color.
-        // Windows 7 uses the magnifier-control API; fullscreen magnifier APIs require Windows 8+.
+        // Saturation is controlled through AMD ADL2 at driver/display level.
         bool ApplyColorEffect(int v)
         {
-            try
-            {
-                if (v == 0)
-                {
-                    if (saturationOverlay != null)
-                    {
-                        saturationOverlay.Close();
-                        saturationOverlay.Dispose();
-                        saturationOverlay = null;
-                    }
-                    if (magReady)
-                    {
-                        Native.MagUninitialize();
-                        magReady = false;
-                    }
-                    return true;
-                }
-
-                if (!magReady)
-                {
-                    magReady = Native.MagInitialize();
-                    if (!magReady) return false;
-                }
-
-                if (saturationOverlay == null || saturationOverlay.IsDisposed)
-                {
-                    saturationOverlay = new SaturationOverlay();
-                    saturationOverlay.Show();
-                }
-
-                return saturationOverlay.SetSaturation(v);
-            }
-            catch
-            {
-                return false;
-            }
+            if (saturationController == null) return false;
+            return saturationController.SetSaturation(v);
         }
 
         void ApplyRamp()
@@ -656,12 +712,12 @@ namespace Colors10App
             else if (!ok2)
             {
                 lblStatus.ForeColor = Color.Firebrick;
-                lblStatus.Text = "Saturation unavailable: Windows magnification or display driver rejected the effect.";
+                lblStatus.Text = saturationController == null ? "AMD ADL2 unavailable" : saturationController.Status;
             }
             else
             {
                 lblStatus.ForeColor = SystemColors.ControlText;
-                lblStatus.Text = "Colors10 1.0.0";
+                lblStatus.Text = saturationController.Status;
             }
         }
 
@@ -790,8 +846,6 @@ namespace Colors10App
 
         void OnDisplayChanged(object sender, EventArgs e)
         {
-            if (saturationOverlay != null && !saturationOverlay.IsDisposed)
-                saturationOverlay.UpdateSource();
             if (IsHandleCreated)
                 BeginInvoke(new MethodInvoker(ApplyRamp));
         }
@@ -813,7 +867,7 @@ namespace Colors10App
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             UnregisterHotkeys();
             if (haveOrig) SetRamp(origRamp);
-            try { ApplyColorEffect(0); }
+            try { if (saturationController != null) saturationController.Dispose(); }
             catch { }
             if (notify != null)
             {
