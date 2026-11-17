@@ -1,0 +1,73 @@
+name: Reset repository completely
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove Actions run records, releases, tags and old branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set +e
+
+          # Delete stored Actions runs (including their logs and artifacts).
+          gh api --paginate "repos/$GH_REPO/actions/runs?per_page=100" --jq '.workflow_runs[].id' |
+          while read -r id; do
+            [ -n "$id" ] && gh api --silent --method DELETE "repos/$GH_REPO/actions/runs/$id" || true
+          done
+
+          # Delete releases (and their attached assets).
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].id' |
+          while read -r id; do
+            [ -n "$id" ] && gh api --silent --method DELETE "repos/$GH_REPO/releases/$id" || true
+          done
+
+          # Delete all tags.
+          gh api --paginate "repos/$GH_REPO/git/matching-refs/tags/" --jq '.[].ref' |
+          while read -r ref; do
+            [ -n "$ref" ] && gh api --silent --method DELETE "repos/$GH_REPO/git/refs/${ref#refs/}" || true
+          done
+
+          # Delete every branch except main.
+          gh api --paginate "repos/$GH_REPO/branches?per_page=100" --jq '.[].name' |
+          while read -r branch; do
+            [ "$branch" = "main" ] && continue
+            [ -n "$branch" ] && gh api --silent --method DELETE "repos/$GH_REPO/git/refs/heads/$branch" || true
+          done
+
+      - name: Replace main with a new root commit containing only this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEEP=".github/workflows/reset.yml"
+          cp "$KEEP" /tmp/reset.yml
+
+          # Start an unrelated history with no parent commit.
+          git checkout --orphan fresh-start
+          git rm -r --cached -f --ignore-unmatch . || true
+
+          # Remove all project files, then restore only this workflow.
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          mkdir -p .github/workflows
+          cp /tmp/reset.yml "$KEEP"
+
+          git add -- "$KEEP"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Fresh start"
+          git push origin HEAD:main --force
