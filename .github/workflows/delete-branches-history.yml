@@ -1,0 +1,73 @@
+name: Delete Branches and Git History
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  reset-history:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Delete all branches except the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/$REPO/branches?per_page=100" --jq '.[].name' |
+          while IFS= read -r BRANCH; do
+            [ -z "$BRANCH" ] && continue
+            if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+              echo "Keeping default branch: $BRANCH"
+              continue
+            fi
+            echo "Deleting branch: $BRANCH"
+            gh api --method DELETE "/repos/$REPO/git/refs/heads/$BRANCH"
+          done
+
+      - name: Delete all tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/$REPO/tags?per_page=100" --jq '.[].name' |
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "Deleting tag: $TAG"
+            gh api --method DELETE "/repos/$REPO/git/refs/tags/$TAG"
+          done
+
+      - name: Replace default branch history with one fresh commit
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --orphan clean-history
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No files found to commit."
+            exit 1
+          fi
+          git commit -m "Start fresh Git history"
+          git push --force origin "HEAD:$DEFAULT_BRANCH"
+
+      - name: Summary
+        run: echo "Finished. Other branches and tags were deleted, and the default branch now has a fresh history."
