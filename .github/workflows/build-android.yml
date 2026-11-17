@@ -1,11 +1,9 @@
-name: Build Android App
+name: Universal Android Builder
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
 
 permissions:
   contents: read
@@ -15,27 +13,56 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download Source Code
+      - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect Java Version
+        id: java
+        shell: bash
+        run: |
+          if grep -RqsE 'jvmToolchain\(21\)|JavaVersion.VERSION_21|jvmTarget = "21"' --include='*.gradle' --include='*.gradle.kts' .; then
+            echo "version=21" >> "$GITHUB_OUTPUT"
+          elif grep -RqsE 'jvmToolchain\(17\)|JavaVersion.VERSION_17|jvmTarget = "17"' --include='*.gradle' --include='*.gradle.kts' .; then
+            echo "version=17" >> "$GITHUB_OUTPUT"
+          elif grep -RqsE 'jvmToolchain\(11\)|JavaVersion.VERSION_11' --include='*.gradle' --include='*.gradle.kts' .; then
+            echo "version=11" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=17" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ steps.java.outputs.version }}
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Locate Gradle Wrapper
+        id: gradle
+        shell: bash
+        run: |
+          if [ -f gradlew ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          else
+            FILE=$(find . -name gradlew -type f | head -n 1)
+            if [ -z "$FILE" ]; then
+              echo "Gradle wrapper not found"
+              exit 1
+            fi
+            echo "dir=$(dirname "$FILE")" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Grant Permissions
-        run: chmod +x gradlew
-
-      - name: Build Android APK
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Build APK
+        shell: bash
+        run: |
+          cd "${{ steps.gradle.outputs.dir }}"
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Android-APK
-          path: '**/build/outputs/apk/**/*.apk'
+          path: |
+            **/build/outputs/apk/**/*.apk
           if-no-files-found: error
+          retention-days: 30
