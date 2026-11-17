@@ -1,8 +1,11 @@
-name: Build APK
-# Manual builds only. Commits and source changes will not start a build automatically.
+name: Build Android App
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
@@ -10,37 +13,29 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout source
+      - name: Download Source Code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.2'
 
-      - name: Verify Android SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          test -d "$ANDROID_HOME/platform-tools" || true
-          ls "$ANDROID_HOME"
+      - name: Grant Permissions
+        run: chmod +x gradlew
 
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build Android APK
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DownLS10-debug-apk
-          path: build/outputs/apk/debug/*.apk
+          name: Android-APK
+          path: '**/build/outputs/apk/**/*.apk'
           if-no-files-found: error
-          retention-days: 14
-
-# Build requested 2026-10-24: include latest saved project changes
-# Rebuild requested 2026-10-25: build latest saved changes.
