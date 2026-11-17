@@ -109,8 +109,12 @@ android {
 }
 
 androidComponents {
-    onVariants(selector().all()) { variant ->
-        variant.runtimeConfiguration.resolutionStrategy.activateDependencyLocking()
+    // Dependency locks are maintained for local development. CI resolves the
+    // declared dependency graph directly so stale lock entries do not break APK builds.
+    if (System.getenv("CI") != "true") {
+        onVariants(selector().all()) { variant ->
+            variant.runtimeConfiguration.resolutionStrategy.activateDependencyLocking()
+        }
     }
 }
 
